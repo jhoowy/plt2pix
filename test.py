@@ -17,7 +17,8 @@ def parse_args():
     parser.add_argument('--cpu', action='store_true', help='If set, use cpu only')
 
     parser.add_argument('--input_size', type=int, default=256, help='Width / Height of input image (must be rectangular)')
-    parser.add_argument('--load', type=str, default="", help='Path to load network weights (if non-empty)')
+    parser.add_argument('--load', type=str, default="", required=True, help='Path to load network weights')
+    parser.add_argument('--load_crn', type=str, default="", help='Path to load CRN network weights')
     parser.add_argument('--color_space', type=str, default='rgb', choices=['lab', 'rgb', 'hsv'], help='color space of images')
     parser.add_argument('--layers', type=int, nargs='+', default=[12,8,5,5],
         help='Block counts of each U-Net Decoder blocks of generator. The first argument is count of bottom block.')
@@ -50,6 +51,12 @@ def main():
 
     output = Image.fromarray(output)
     output.save('test_result.png')
+
+    # palette = model.recommend_color(img)
+    # output = model.colorize(img, palette)
+
+    # output = Image.fromarray(output)
+    # output.save('recommend_result.png')
 
 
 if __name__ == '__main__':

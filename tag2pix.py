@@ -20,18 +20,6 @@ class tag2pix(object):
     def __init__(self, args):
         if args.model == 'tag2pix':
             from network import Generator
-        elif args.model == 'senet':
-            from model.GD_senet import Generator
-        elif args.model == 'resnext':
-            from model.GD_resnext import Generator
-        elif args.model == 'catconv':
-            from model.GD_cat_conv import Generator
-        elif args.model == 'catall':
-            from model.GD_cat_all import Generator
-        elif args.model == 'adain':
-            from model.GD_adain import Generator
-        elif args.model == 'seadain':
-            from model.GD_seadain import Generator
         else:
             raise Exception('invalid model name: {}'.format(args.model))
 
@@ -117,6 +105,13 @@ class tag2pix(object):
         self.CE_loss = nn.CrossEntropyLoss()
         self.L1Loss = nn.L1Loss()
 
+        if args.train_crn:
+            from network import ColorPredictor
+
+            self.CRN = ColorPredictor(palette_num=self.palette_num, net_opt=self.net_opt)
+            self.CRN = nn.DataParallel(self.CRN)
+            self.CRN_optimizer = optim.Adam(self.CRN.parameters(), lr=args.lrD, betas=(args.beta1, args.beta2))
+
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print("gpu mode: ", self.gpu_mode)
         print("device: ", self.device)
@@ -129,6 +124,8 @@ class tag2pix(object):
             self.BCE_loss.to(self.device)
             self.CE_loss.to(self.device)
             self.L1Loss.to(self.device)
+            if args.train_crn:
+                self.CRN.to(self.device)
 
     def train(self):
         self.train_hist = {}
@@ -269,6 +266,70 @@ class tag2pix(object):
         self.train_hist['total_time'].append(time.time() - start_time)
         print("Avg one epoch time: {:.2f}, total {} epochs time: {:.2f}".format(
             np.mean(self.train_hist['per_epoch_time']), self.epoch, self.train_hist['total_time'][0]))
+
+    
+    def train_crn(self):
+        self.train_hist = {}
+        self.train_hist['CRN_loss'] = []
+        self.train_hist['per_epoch_time'] = []
+        self.train_hist['total_time'] = []
+
+        self.CRN.train()
+
+        self.end_epoch = self.epoch
+
+        print('training start!!')
+        start_time = time.time()
+
+        for epoch in range(self.start_epoch, self.end_epoch + 1):
+            print("EPOCH: {}".format(epoch))
+
+            self.G.train()
+            epoch_start_time = time.time()
+
+            max_iter = self.train_data_loader.dataset.__len__() // self.batch_size
+
+            for iter, (_, sketch_, _, palette_) in enumerate(tqdm(self.train_data_loader, ncols=80)):
+                if iter >= max_iter:
+                    break
+
+                if self.gpu_mode:
+                    sketch_, palette_ = sketch_.to(self.device), palette_.to(self.device)
+
+                # update CRN network
+                self.CRN_optimizer.zero_grad()
+
+                plt_pred = self.CRN(sketch_)
+                CRN_loss = self.L1Loss(plt_pred, palette_)
+
+                self.train_hist['CRN_loss'].append(CRN_loss.item())
+
+                CRN_loss.backward()
+                self.CRN_optimizer.step()
+
+                if ((iter + 1) % 100) == 0:
+                    print("Epoch: [{:2d}] [{:4d}/{:4d}] CRN_loss: {:.8f}".format(
+                        epoch, (iter + 1), max_iter, CRN_loss.item()))
+
+            self.train_hist['per_epoch_time'].append(time.time() - epoch_start_time)
+
+            with torch.no_grad():
+                self.visualize_palette_results(epoch)
+
+            if epoch >= self.save_all_epoch > 0:
+                self.save_crn(epoch)
+            elif self.save_freq > 0 and epoch % self.save_freq == 0:
+                self.save_crn(epoch)
+
+        print("Training finish!... save training results")
+
+        if self.save_freq == 0 or epoch % self.save_freq != 0:
+            if self.save_all_epoch <= 0 or epoch < self.save_all_epoch:
+                self.save_crn(epoch)
+
+        self.train_hist['total_time'].append(time.time() - start_time)
+        print("Avg one epoch time: {:.2f}, total {} epochs time: {:.2f}".format(
+            np.mean(self.train_hist['per_epoch_time']), self.epoch, self.train_hist['total_time'][0]))
         
 
     def test(self):
@@ -308,6 +369,24 @@ class tag2pix(object):
                     img = Image.fromarray(result)
                     img.save(save_path)
 
+    def visualize_palette_results(self, epoch):
+        if not self.result_path.exists():
+            self.result_path.mkdir()
+
+        self.CRN.eval()
+
+        _, sketch_, palette_ = self.test_images
+        with torch.no_grad():
+            if self.gpu_mode:
+                sketch_ = sketch_.to(self.device)
+            
+            plt_pred = self.CRN(sketch_)
+
+            if self.gpu_mode:
+                plt_pred = plt_pred.cpu()
+
+        self.save_palette(plt_pred, self.result_path / 'plt2pix_epoch{:03d}_pred.png'.format(epoch))
+
     def visualize_results(self, epoch, fix=True):
         if not self.result_path.exists():
             self.result_path.mkdir()
@@ -320,8 +399,6 @@ class tag2pix(object):
 
         # iv_tag_ to feature tensor 16 * 16 * 256 by pre-reained Sketch.
         with torch.no_grad():
-            # feature_tensor = self.Pretrain_ResNeXT(sketch_)
-            
             if self.gpu_mode:
                 original_, sketch_, palette_= original_.to(self.device), sketch_.to(self.device), palette_.to(self.device)
 
@@ -358,6 +435,23 @@ class tag2pix(object):
             }, str(save_dir / 'plt2pix_{}_epoch.pkl'.format(save_epoch)))
 
         with (save_dir / 'plt2pix_{}_history.pkl'.format(save_epoch)).open('wb') as f:
+            pickle.dump(self.train_hist, f)
+
+        print("============= save success =============")
+        print("epoch from {} to {}".format(self.start_epoch, save_epoch))
+        print("save result path is {}".format(str(self.result_path)))
+
+    def save_crn(self, save_epoch):
+        if not self.result_path.exists():
+            self.result_path.mkdir()
+        
+        save_dir = self.result_path
+
+        torch.save({
+            'CRN' : self.CRN.state_dict()
+        }, str(save_dir / 'CRN_{}_epoch.pkl'.format(save_epoch)))
+
+        with (save_dir / 'CRN_{}_history.pkl'.format(save_epoch)).open('wb') as f:
             pickle.dump(self.train_hist, f)
 
         print("============= save success =============")

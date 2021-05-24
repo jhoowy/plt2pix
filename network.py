@@ -298,6 +298,58 @@ class Generator(nn.Module):
 
         return full_output, decoder_output
 
+
+class ColorPredictor(nn.Module):
+    def __init__(self, input_size=1, palette_num=5, net_opt=DEFAULT_NET_OPT):
+        super(ColorPredictor, self).__init__()
+        self.input_size = input_size
+        self.palette_num = palette_num * 3
+        self.cardinality = 16
+
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(input_size, 32, 3, 1, 1),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(32, 32, 3, 2, 0),
+            nn.LeakyReLU(0.2),
+        )
+        self.conv2 = self._make_block_1(32, 64)
+        self.conv3 = self._make_block_1(64, 128)
+        self.conv4 = self._make_block_1(128, 256)
+        self.conv5 = self._make_block_1(256, 512)
+        self.conv6 = self._make_block_3(512, 512)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Sequential(
+            nn.Linear(512, self.palette_num),
+            nn.Tanh()
+        )
+
+    def _make_block_1(self, inplanes, planes):
+        return nn.Sequential(
+            SEResNeXt._make_layer(self, BottleneckX, planes//4, 2, inplanes=inplanes),
+            nn.Conv2d(planes, planes, 3, 2, 1),
+            nn.LeakyReLU(0.2),
+        )
+
+    def _make_block_3(self, inplanes, planes):
+        return nn.Sequential(
+            SEResNeXt._make_layer(self, BottleneckX, planes//4, 1, inplanes=inplanes),
+        )
+
+    def forward(self, input):
+        out = self.conv1(input)
+        out = self.conv2(out)
+        out = self.conv3(out)
+        out = self.conv4(out)
+        out = self.conv5(out)
+        out = self.conv6(out)
+        out = self.avgpool(out)
+        out = out.view(out.size(0), -1)
+	
+        color_pred = self.fc(out)
+
+        return color_pred
+
+
 class Discriminator(nn.Module):
     def __init__(self, input_dim=3, output_dim=1, input_size=256, palette_num=5, net_opt=DEFAULT_NET_OPT):
         super(Discriminator, self).__init__()

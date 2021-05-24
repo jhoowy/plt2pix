@@ -15,7 +15,7 @@ def parse_args():
     desc = "tag2pix: Line Art Colorization using Text Tag"
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('--model', type=str, default='tag2pix', choices=['tag2pix', 'senet', 'resnext', 'catconv', 'catall', 'adain', 'seadain'],
+    parser.add_argument('--model', type=str, default='tag2pix', choices=['tag2pix'],
                         help='Model Types. (default: tag2pix == SECat)')
 
     parser.add_argument('--cpu', action='store_true', help='If set, use cpu only')
@@ -72,6 +72,8 @@ def parse_args():
     parser.add_argument('--plt_weight', type=float, default=1, help='Palette Loss weight')
     parser.add_argument('--use_mask', action='store_true', help='Use mask for Discriminator')
 
+    parser.add_argument('--train_crn', action='store_true', help='Train color recommendation network')
+
     args = parser.parse_args()
     validate_args(args)
 
@@ -108,6 +110,9 @@ def main():
     if args.test:
         gan.test()
         print(" [*] Testing finished!")
+    elif args.train_crn:
+        gan.train_crn()
+        print(" [*] CRN Training finished!")
     else:
         gan.train()
         gan.visualize_results(args.epoch)

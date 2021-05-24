@@ -11,18 +11,6 @@ class plt2pix(object):
     def __init__(self, args):
         if args.model == 'tag2pix':
             from network import Generator
-        elif args.model == 'senet':
-            from model.GD_senet import Generator
-        elif args.model == 'resnext':
-            from model.GD_resnext import Generator
-        elif args.model == 'catconv':
-            from model.GD_cat_conv import Generator
-        elif args.model == 'catall':
-            from model.GD_cat_all import Generator
-        elif args.model == 'adain':
-            from model.GD_adain import Generator
-        elif args.model == 'seadain':
-            from model.GD_seadain import Generator
         else:
             raise Exception('invalid model name: {}'.format(args.model))
 
@@ -38,6 +26,8 @@ class plt2pix(object):
         self.sketch_transform = transforms.Compose([
                                     transforms.Resize((self.input_size, self.input_size), interpolation=Image.LANCZOS),
                                     transforms.ToTensor()])
+        
+        self.use_crn = (args.load_crn is not "")
 
         ##### initialize network
         self.net_opt = {
@@ -55,6 +45,15 @@ class plt2pix(object):
 
         self.G = nn.DataParallel(self.G)
 
+        if self.use_crn:
+            from network import ColorPredictor
+
+            self.CRN = ColorPredictor(palette_num=self.palette_num, net_opt=self.net_opt)
+            
+            for param in self.CRN.parameters():
+                param.requires_grad = False
+            self.CRN = nn.DataParallel(self.CRN)
+
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print("gpu mode: ", self.gpu_mode)
         print("device: ", self.device)
@@ -62,17 +61,23 @@ class plt2pix(object):
 
         if self.gpu_mode:
             self.G.to(self.device)
+            if self.use_crn:
+                self.CRN.to(self.device)
         
         self.G.eval()
-        self.load_test(args.load)
+        self.load_model(args.load)
+
+        if self.use_crn:
+            self.CRN.eval()
+            self.load_crn(args.load_crn)
         self.G.module.net_opt['guide'] = False
 
     def colorize(self, input_image, palette=None):
-        ''' Colorize input image based on palette
+        '''Colorize input image based on palette
 
         Parameters:
             input_image (PIL.Image) -- the input sketch image
-            palette (np.array)      -- RGB-ordered conditional palette (K x 3).
+            palette (np.array)      -- RGB-ordered conditional palette (K x 3)
 
         Returns:
             G_f (np.array)          -- the colorized result of input sketch image
@@ -96,6 +101,30 @@ class plt2pix(object):
 
         return G_f
 
-    def load_test(self, checkpoint_path):
+    def recommend_color(self, input_image):
+        '''Recommend color palette based on sketch image
+
+        Parameters:
+            input_image (PIL.Image) -- the input sketch image
+
+        Returns:
+            palette (np.array)      -- RGB-ordered conditional palette (K x 3)
+        '''
+
+        sketch = self.sketch_transform(input_image)
+        sketch = sketch.reshape(1, *sketch.shape)
+
+        if self.gpu_mode:
+            sketch = sketch.to(self.device)
+
+        palette = self.CRN(sketch) * 255.
+
+        return palette
+
+    def load_model(self, checkpoint_path):
         checkpoint = torch.load(str(checkpoint_path))
         self.G.load_state_dict(checkpoint['G'])
+
+    def load_crn(self, checkpoint_path):
+        checkpoint = torch.load(str(checkpoint_path))
+        self.CRN.load_state_dict(checkpoint['CRN'])
