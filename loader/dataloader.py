@@ -13,6 +13,8 @@ from torchvision.transforms import functional as tvF
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset  # For custom datasets
 
+from torchvision.transforms.functional import InterpolationMode as IM
+
 def set_seed(seed, print_log=True):
     if seed < 0:
         return
@@ -225,12 +227,12 @@ class ColorAndSketchDataset(Dataset):
         mask_img = np.load(mask_path)
         sketch_img = Image.open(sketch_path).convert('L')  # to [1, H, W]
 
-        if self.both_transform is not None:
-            color_img, sketch_img = self.both_transform(color_img, sketch_img)
         if self.mask_transform is not None:
             mask_img = self.mask_transform(mask_img)
         else:
             mask_img = torch.FloatTensor(mask_img)
+        if self.both_transform is not None:
+            color_img, sketch_img, mask_img = self.both_transform(color_img, sketch_img, mask_img)
         if self.color_transform is not None:
             color_img = self.color_transform(color_img)
         if self.sketch_transform is not None:
@@ -247,7 +249,7 @@ class ColorAndSketchDataset(Dataset):
 
     def enhance_brightness(self, input_size):
         random_jitter = [transforms.ColorJitter(brightness=[1, 7], contrast=0.2, saturation=0.2)]
-        data_augmentation = [transforms.Resize((input_size, input_size), interpolation=Image.LANCZOS),
+        data_augmentation = [transforms.Resize((input_size, input_size), interpolation=IM.LANCZOS),
                             transforms.ToTensor()]
         self.sketch_transform = transforms.Compose(random_jitter + data_augmentation)
 
@@ -317,25 +319,36 @@ def rot_crop(x):
 
 class RandomFRC(transforms.RandomResizedCrop):
     """RandomHorizontalFlip + RandomRotation + RandomResizedCrop 2 images"""
-    def __call__(self, img1, img2):
-        img1 = tvF.resize(img1, self.size, interpolation=Image.LANCZOS)
-        img2 = tvF.resize(img2, self.size, interpolation=Image.LANCZOS)
+    def __call__(self, img1, img2, img3=None):
+        img1 = tvF.resize(img1, self.size, interpolation=IM.LANCZOS)
+        img2 = tvF.resize(img2, self.size, interpolation=IM.LANCZOS)
+        if img3 != None:
+            img3 = tvF.resize(img3, self.size, interpolation=IM.NEAREST)
         if random.random() < 0.5:
             img1 = tvF.hflip(img1)
             img2 = tvF.hflip(img2)
+            if img3 != None:
+                img3 = tvF.hflip(img3)
         if random.random() < 0.5:
             rot = random.uniform(-10, 10)
             crop_ratio = rot_crop(rot)
-            img1 = tvF.rotate(img1, rot, resample=Image.BILINEAR)
-            img2 = tvF.rotate(img2, rot, resample=Image.BILINEAR)
+            img1 = tvF.rotate(img1, rot, interpolation=IM.BILINEAR)
+            img2 = tvF.rotate(img2, rot, interpolation=IM.BILINEAR)
             img1 = tvF.center_crop(img1, int(img1.size[0] * crop_ratio))
             img2 = tvF.center_crop(img2, int(img2.size[0] * crop_ratio))
+            if img3 != None:
+                img3 = tvF.rotate(img3, rot, interpolation=IM.NEAREST)
+                img3 = tvF.center_crop(img3, int(img3.shape[1] * crop_ratio))
 
         i, j, h, w = self.get_params(img1, self.scale, self.ratio)
 
+
         # return the image with the same transformation
-        return (tvF.resized_crop(img1, i, j, h, w, self.size, self.interpolation),
-                tvF.resized_crop(img2, i, j, h, w, self.size, self.interpolation))
+        img1 = tvF.resized_crop(img1, i, j, h, w, self.size, self.interpolation)
+        img2 = tvF.resized_crop(img2, i, j, h, w, self.size, self.interpolation)
+        if img3 != None:
+            img3 = tvF.resized_crop(img3, i, j, h, w, self.size)
+        return (img1, img2, img3)
 
 def get_train_dataset(args):
     set_seed(args.seed)
@@ -345,12 +358,12 @@ def get_train_dataset(args):
     batch_size = args.batch_size
     input_size = args.input_size
 
-    data_randomize = RandomFRC(input_size, scale=(0.9, 1.0), ratio=(0.95, 1.05), interpolation=Image.LANCZOS)
+    data_randomize = RandomFRC(input_size, scale=(0.9, 1.0), ratio=(0.95, 1.05), interpolation=IM.LANCZOS)
 
     color_space = args.color_space
     swap_color_space = [RGB2ColorSpace(color_space)]
     random_jitter = [transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2)]
-    data_augmentation = [transforms.Resize((input_size, input_size), interpolation=Image.LANCZOS),
+    data_augmentation = [transforms.Resize((input_size, input_size), interpolation=IM.LANCZOS),
                         transforms.ToTensor()]
     
     mask_transform = [transforms.ToTensor()]
@@ -449,7 +462,7 @@ def get_test_dataset(args):
     batch_size = args.batch_size
     input_size = args.input_size
 
-    data_augmentation = [transforms.Resize((input_size, input_size), interpolation=Image.LANCZOS),
+    data_augmentation = [transforms.Resize((input_size, input_size), interpolation=IM.LANCZOS),
                         transforms.ToTensor()]
 
     data_size = args.data_size

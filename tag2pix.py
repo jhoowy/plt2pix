@@ -15,6 +15,9 @@ from network import Discriminator
 from model.se_resnet import BottleneckX, SEResNeXt
 from model.pretrained import se_resnext_half
 
+from color_thief import ColorThief
+import random
+
 
 class tag2pix(object):
     def __init__(self, args):
@@ -32,6 +35,7 @@ class tag2pix(object):
         self.color_revert = ColorSpace2RGB(args.color_space)
         self.layers = args.layers
         self.plt_weight = args.plt_weight
+        self.default_prob = args.default_prob
 
         self.load_dump = (args.load is not "")
 
@@ -175,6 +179,14 @@ class tag2pix(object):
                 else:
                     mask_ = None
 
+                default_plt = False
+                if random.random() < self.default_prob:
+                    origin_palette_ = palette_
+                    palette_ -= palette_ + 1
+                    if mask_ is not None:
+                        mask_ -= mask_
+                    default_plt = True
+
                 # update D network
                 self.D_optimizer.zero_grad()
 
@@ -183,29 +195,17 @@ class tag2pix(object):
                 if self.gpu_mode:
                     feature_tensor = feature_tensor.to(self.device)
 
-                D_real, plt_real = self.D(original_, mask_)
+                D_real = self.D(original_, mask_)
                 D_real_loss = self.BCE_loss(D_real, self.y_real_)
 
                 G_f, _ = self.G(sketch_, palette_)
                 if self.gpu_mode:
                     G_f = G_f.to(self.device)
 
-                D_f_fake, plt_f_fake = self.D(G_f, mask_)
+                D_f_fake = self.D(G_f, mask_)
                 D_f_fake_loss = self.BCE_loss(D_f_fake, self.y_fake_)
 
-                if self.two_step_epoch == 0 or epoch >= self.two_step_epoch:
-                    plt_real_loss = self.L1Loss(plt_real, palette_)
-
-                    P_real_loss = self.plt_weight * plt_real_loss + self.plt_weight * plt_real_loss
-
-                    plt_f_fake_loss = self.L1Loss(plt_f_fake, palette_)
-
-                    P_f_fake_loss = self.plt_weight * plt_f_fake_loss + self.plt_weight * plt_f_fake_loss
-                else:
-                    P_real_loss = 0
-                    P_f_fake_loss = 0
-
-                D_loss = self.adv_lambda * (D_real_loss + D_f_fake_loss) + (P_real_loss + P_f_fake_loss)
+                D_loss = self.adv_lambda * (D_real_loss + D_f_fake_loss)
 
                 self.train_hist['D_loss'].append(D_loss.item())
 
@@ -220,21 +220,19 @@ class tag2pix(object):
                 if self.gpu_mode:
                     G_f, G_g = G_f.to(self.device), G_g.to(self.device)
 
-                D_f_fake, plt_f_fake = self.D(G_f, mask_)
+                D_f_fake = self.D(G_f, mask_)
 
                 D_f_fake_loss = self.BCE_loss(D_f_fake, self.y_real_)
 
-                if self.two_step_epoch == 0 or epoch >= self.two_step_epoch:
-                    plt_f_fake_loss = self.L1Loss(plt_f_fake, palette_)
-
-                    P_f_fake_loss = self.plt_weight * plt_f_fake_loss + self.plt_weight * plt_f_fake_loss
-                else:
-                    P_f_fake_loss = 0
+                G_f_img = self.color_revert(G_f.to('cpu'))
+                P_f_fake = ColorThief(G_f_img).get_palette(color_count=self.palette_num)
+                P_f_fake = torch.FloatTensor(P_f_fake / 255.).to(self.device)
+                L1_plt_f_loss = self.L1Loss(P_f_fake, palette_) * self.plt_weight
 
                 L1_D_f_fake_loss = self.L1Loss(G_f, original_)
                 L1_D_g_fake_loss = self.L1Loss(G_g, original_) if self.net_opt['guide'] else 0
 
-                G_loss = (D_f_fake_loss + P_f_fake_loss) + \
+                G_loss = (D_f_fake_loss + L1_plt_f_loss) + \
                          (L1_D_f_fake_loss + L1_D_g_fake_loss * self.guide_beta) * self.l1_lambda
 
                 self.train_hist['G_loss'].append(G_loss.item())

@@ -5,6 +5,7 @@ from PIL import Image
 
 from loader.dataloader import ColorSpace2RGB
 from torchvision import transforms
+from torchvision.transforms.functional import InterpolationMode as IM
 
 # Only for inference
 class plt2pix(object):
@@ -24,10 +25,10 @@ class plt2pix(object):
         self.palette_num = args.palette_num
 
         self.sketch_transform = transforms.Compose([
-                                    transforms.Resize((self.input_size, self.input_size), interpolation=Image.LANCZOS),
+                                    transforms.Resize((self.input_size, self.input_size), interpolation=IM.LANCZOS),
                                     transforms.ToTensor()])
         
-        self.use_crn = (args.load_crn is not "")
+        self.use_crn = (args.load_crn != "")
 
         ##### initialize network
         self.net_opt = {
@@ -110,6 +111,9 @@ class plt2pix(object):
         Returns:
             palette (np.array)      -- RGB-ordered conditional palette (K x 3)
         '''
+        
+        if not self.use_crn:
+            raise Exception("Color Recommendation Network is not loaded")
 
         sketch = self.sketch_transform(input_image)
         sketch = sketch.reshape(1, *sketch.shape)

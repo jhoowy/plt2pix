@@ -374,11 +374,6 @@ class Discriminator(nn.Module):
         self.conv8 = self._make_block_3(512, 512)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.plt_pred = nn.Sequential(
-            nn.Linear(512, self.palette_num),
-            nn.Tanh()
-        )
-
         self.adv_judge = nn.Sequential(
             nn.Linear(512, 1),
             nn.Sigmoid()
@@ -425,7 +420,6 @@ class Discriminator(nn.Module):
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
 	
-        plt_pred = self.plt_pred(out)
         adv_judge = self.adv_judge(out)
 
-        return adv_judge, plt_pred
+        return adv_judge

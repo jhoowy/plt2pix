@@ -45,6 +45,7 @@ def main():
 
     img = Image.open('testset/000099.png')
     # (R, G, B, R, G, B, ..., R, G, B)
+    # palette = np.array([-255] * 15) # Default palette
     palette = np.array([201, 207, 216, 83, 127, 164, 124, 156, 189, 116, 132, 146, 124, 140, 148])
 
     output = model.colorize(img, palette)

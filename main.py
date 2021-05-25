@@ -70,6 +70,7 @@ def parse_args():
     parser.add_argument('--palette_num', type=int, default=5, help='Number of palette colors')
 
     parser.add_argument('--plt_weight', type=float, default=1, help='Palette Loss weight')
+    parser.add_argument('--default_prob', type=float, default=0.1, help='Probability that using default palette')
     parser.add_argument('--use_mask', action='store_true', help='Use mask for Discriminator')
 
     parser.add_argument('--train_crn', action='store_true', help='Train color recommendation network')
