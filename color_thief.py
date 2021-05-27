@@ -75,7 +75,10 @@ class ColorThief(object):
             # Send array to quantize function which clusters values
             # using median cut algorithm
             cmap = MMCQ.quantize(valid_pixels, color_count)
-            palette[idx] = np.array(cmap.palette).reshape(1, 3 * color_count)
+            plt = np.array(cmap.palette).reshape(-1)
+            while len(plt) < 3 * color_count:
+                plt = np.append(plt, plt[-3:])
+            palette[idx] = plt.reshape(1, -1)
         return palette
 
 

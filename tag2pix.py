@@ -180,8 +180,8 @@ class tag2pix(object):
                     mask_ = None
 
                 default_plt = False
+                original_palette_ = palette_
                 if random.random() < self.default_prob:
-                    origin_palette_ = palette_
                     palette_ -= palette_ + 1
                     if mask_ is not None:
                         mask_ -= mask_
@@ -227,7 +227,9 @@ class tag2pix(object):
                 G_f_img = self.color_revert(G_f.to('cpu'))
                 P_f_fake = ColorThief(G_f_img).get_palette(color_count=self.palette_num)
                 P_f_fake = torch.FloatTensor(P_f_fake / 255.).to(self.device)
-                L1_plt_f_loss = self.L1Loss(P_f_fake, palette_) * self.plt_weight
+                L1_plt_f_loss = self.L1Loss(P_f_fake, original_palette_) * self.plt_weight
+                if default_plt:
+                    L1_plt_f_loss *= 0.1
 
                 L1_D_f_fake_loss = self.L1Loss(G_f, original_)
                 L1_D_g_fake_loss = self.L1Loss(G_g, original_) if self.net_opt['guide'] else 0
