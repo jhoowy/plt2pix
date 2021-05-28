@@ -44,7 +44,8 @@ class plt2pix(object):
         for param in self.G.parameters():
             param.requires_grad = False
 
-        self.G = nn.DataParallel(self.G)
+        if self.gpu_mode:
+            self.G = nn.DataParallel(self.G)
 
         if self.use_crn:
             from network import ColorPredictor
@@ -53,7 +54,9 @@ class plt2pix(object):
             
             for param in self.CRN.parameters():
                 param.requires_grad = False
-            self.CRN = nn.DataParallel(self.CRN)
+
+            if self.gpu_mode:
+                self.CRN = nn.DataParallel(self.CRN)
 
         if self.gpu_mode and torch.cuda.is_available():
             self.device = torch.device("cuda:0")
@@ -75,7 +78,11 @@ class plt2pix(object):
         if self.use_crn:
             self.CRN.eval()
             self.load_crn(args.load_crn)
-        self.G.module.net_opt['guide'] = False
+
+        if self.gpu_mode:
+            self.G.module.net_opt['guide'] = False
+        else:
+            self.G.net_opt['guide'] = False
 
     def colorize(self, input_image, palette=None):
         '''Colorize input image based on palette
