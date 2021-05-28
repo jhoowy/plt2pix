@@ -55,10 +55,14 @@ class plt2pix(object):
                 param.requires_grad = False
             self.CRN = nn.DataParallel(self.CRN)
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        if self.gpu_mode and torch.cuda.is_available():
+            self.device = torch.device("cuda:0")
+        else:
+            self.device = torch.device("cpu")
         print("gpu mode: ", self.gpu_mode)
         print("device: ", self.device)
-        print(torch.cuda.device_count(), "GPUS!")
+        if self.gpu_mode:
+            print(torch.cuda.device_count(), "GPUS!")
 
         if self.gpu_mode:
             self.G.to(self.device)
